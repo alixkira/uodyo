@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>قارئ الفقرات بصوت رجل</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+:root{
+  --bg:#070b16;          /* navy عميق */
+  --surface:#0e1626;     /* slate داكن */
+  --surface-2:#131d31;
+  --line:#22304a;
+  --text:#e8eefb;        /* تباين عالٍ */
+  --muted:#9fb0cf;
+  --cyan:#22e4ff;        /* لمسة النيون */
+  --cyan-soft:rgba(34,228,255,.14);
+  --danger:#ff7a8a;
+  --warn:#ffd27a;
+  --ui:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
+  --read:"Newsreader",Georgia,"Times New Roman",serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0;min-height:100vh;background:
+    radial-gradient(900px 480px at 50% -10%,rgba(34,228,255,.10),transparent 60%),var(--bg);
+  color:var(--text);font-family:var(--ui);line-height:1.6;
+  display:flex;justify-content:center;padding:28px 16px 48px;
+}
+.app{width:100%;max-width:720px;display:grid;gap:16px;align-content:start}
+header h1{margin:0 0 4px;font-size:1.6rem;font-weight:600;letter-spacing:-.01em}
+header p{margin:0;color:var(--muted);font-size:.95rem}
+
+.card{
+  background:linear-gradient(180deg,var(--surface-2),var(--surface));
+  border:1px solid var(--line);border-radius:22px;padding:18px;
+  box-shadow:0 12px 32px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04);
+}
+label,.lbl{display:block;font-size:.9rem;color:var(--muted);margin-bottom:8px}
+
+/* منطقة النص */
+textarea{
+  width:100%;min-height:170px;resize:vertical;direction:ltr;text-align:left;
+  background:#0a1120;color:var(--text);border:1px solid var(--line);border-radius:16px;
+  padding:14px 16px;font:400 1.15rem/1.65 var(--read);
+}
+textarea:focus,select:focus,button:focus-visible,input[type=range]:focus-visible{
+  outline:2px solid var(--cyan);outline-offset:2px}
+
+/* المؤشر البصري */
+.stage{display:grid;gap:12px;justify-items:center;text-align:center}
+.wave{display:flex;align-items:center;justify-content:center;gap:5px;height:64px;direction:ltr}
+.wave i{
+  display:block;width:5px;height:8px;border-radius:99px;background:var(--line);
+  transition:background .3s,box-shadow .3s;
+}
+.stage[data-state=speaking] .wave i{
+  background:var(--cyan);box-shadow:0 0 12px rgba(34,228,255,.65);
+  animation:bar 1s ease-in-out infinite;
+}
+.stage[data-state=paused] .wave i{background:var(--warn);height:20px;box-shadow:none}
+.stage[data-state=done] .wave i{background:var(--cyan);height:14px;opacity:.6}
+@keyframes bar{0%,100%{height:8px}50%{height:var(--h,48px)}}
+.status{display:inline-flex;align-items:center;gap:8px;font-weight:500;
+  padding:6px 14px;border-radius:99px;background:var(--cyan-soft);color:var(--cyan)}
+.stage[data-state=paused] .status{background:rgba(255,210,122,.12);color:var(--warn)}
+.stage[data-state=idle] .status,.stage[data-state=stopped] .status{background:rgba(159,176,207,.12);color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.stage[data-state=speaking] .dot{animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.caption{min-height:3.2em;max-width:60ch;direction:ltr;font:400 1.05rem/1.55 var(--read);color:var(--muted)}
+.progress{width:100%;height:4px;border-radius:99px;background:var(--line);overflow:hidden}
+.progress b{display:block;height:100%;width:0;background:var(--cyan);transition:width .3s}
+
+/* الأزرار */
+.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+button{
+  font:500 .95rem var(--ui);color:var(--text);cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:14px;
+  padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;
+  transition:transform .12s,border-color .2s,background .2s;
+}
+button svg{width:22px;height:22px;fill:currentColor}
+button:hover:not(:disabled){border-color:var(--cyan)}
+button:active:not(:disabled){transform:scale(.96)}
+button:disabled{opacity:.38;cursor:not-allowed}
+#play{background:var(--cyan);color:#04121a;border-color:var(--cyan);font-weight:600}
+#play:hover:not(:disabled){box-shadow:0 0 22px rgba(34,228,255,.45)}
+
+/* الإعدادات */
+.grid{display:grid;gap:16px}
+@media(min-width:620px){.grid{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
+select{
+  width:100%;background:#0a1120;color:var(--text);border:1px solid var(--line);
+  border-radius:12px;padding:11px 12px;font:inherit;direction:ltr;text-align:left}
+.row{display:flex;justify-content:space-between;align-items:baseline}
+.row output{color:var(--cyan);font-variant-numeric:tabular-nums;direction:ltr}
+input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
+
+/* التنبيهات */
+.note{display:none;border-radius:14px;padding:12px 14px;font-size:.92rem;border:1px solid}
+.note.show{display:block}
+.note.warn{background:rgba(255,210,122,.08);border-color:rgba(255,210,122,.4);color:var(--warn)}
+.note.err{background:rgba(255,122,138,.08);border-color:rgba(255,122,138,.45);color:var(--danger)}
+
+@media(prefers-reduced-motion:reduce){
+  .stage .wave i,.dot{animation:none!important}
+  .progress b{transition:none}
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <header>
+    <h1>قارئ الفقرات بصوت رجل</h1>
+    <p>الصق فقرة إنجليزية واستمع إليها مباشرة من المتصفح، بلا خادم وبلا تسجيلات.</p>
+  </header>
+
+  <div id="noteSupport" class="note err" role="alert"></div>
+  <div id="noteVoice" class="note warn" role="status"></div>
+
+  <section class="card">
+    <label for="text">النص الإنجليزي</label>
+    <textarea id="text" spellcheck="false">The best way to learn a language is to listen to it every day. Start with short passages, repeat them aloud, and let your ear get used to the rhythm of natural speech. Over time, the sounds that once felt strange will become familiar.</textarea>
+  </section>
+
+  <section class="card stage" id="stage" data-state="idle" aria-live="polite">
+    <div class="wave" id="wave" aria-hidden="true"></div>
+    <span class="status"><span class="dot"></span><span id="statusText">جاهز للقراءة</span></span>
+    <div class="caption" id="caption"></div>
+    <div class="progress" aria-hidden="true"><b id="bar"></b></div>
+  </section>
+
+  <section class="card">
+    <div class="controls">
+      <button id="play" type="button">
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>تشغيل</button>
+      <button id="pause" type="button" disabled>
+        <svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>إيقاف مؤقت</button>
+      <button id="resume" type="button" disabled>
+        <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm4 7 8-7v14z"/></svg>استئناف</button>
+      <button id="stop" type="button" disabled>
+        <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>إيقاف</button>
+    </div>
+  </section>
+
+  <section class="card grid">
+    <div class="full">
+      <label for="voice">الصوت</label>
+      <select id="voice"></select>
+    </div>
+    <div>
+      <div class="row"><label for="rate">سرعة القراءة</label><output id="rateOut">0.95x</output></div>
+      <input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95">
+    </div>
+    <div>
+      <div class="row"><label for="pitch">درجة الصوت (الأقل أعمق)</label><output id="pitchOut">0.85</output></div>
+      <input id="pitch" type="range" min="0.5" max="1.5" step="0.05" value="0.85">
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ---------- عناصر الواجهة ---------- */
+  const $ = id => document.getElementById(id);
+  const el = {
+    text:$('text'), voice:$('voice'), rate:$('rate'), pitch:$('pitch'),
+    rateOut:$('rateOut'), pitchOut:$('pitchOut'),
+    play:$('play'), pause:$('pause'), resume:$('resume'), stop:$('stop'),
+    stage:$('stage'), statusText:$('statusText'), caption:$('caption'),
+    bar:$('bar'), wave:$('wave'),
+    noteSupport:$('noteSupport'), noteVoice:$('noteVoice')
+  };
+
+  /* شريط الموجة: ارتفاع وتأخير مختلف لكل عمود ليبدو طبيعياً */
+  for (let i = 0; i < 27; i++) {
+    const b = document.createElement('i');
+    const mid = 1 - Math.abs(i - 13) / 14;                 // أعلى في الوسط
+    b.style.setProperty('--h', (14 + mid * 46 * (0.6 + Math.random() * 0.4)).toFixed(0) + 'px');
+    b.style.animationDelay = (-Math.random() * 1).toFixed(2) + 's';
+    b.style.animationDuration = (0.7 + Math.random() * 0.7).toFixed(2) + 's';
+    el.wave.appendChild(b);
+  }
+
+  /* ---------- فحص الدعم ---------- */
+  const supported = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  if (!supported) {
+    el.noteSupport.textContent =
+      'متصفحك لا يدعم تقنية تحويل النص إلى كلام. جرّب Chrome أو Edge أو Safari حديثًا.';
+    el.noteSupport.classList.add('show');
+    [el.play, el.text, el.voice, el.rate, el.pitch].forEach(n => n.disabled = true);
+    return;
+  }
+  const synth = window.speechSynthesis;
+
+  /* ---------- اختيار أفضل صوت رجل ---------- */
+  const MALE_HINTS   = /\b(male|david|mark|guy|daniel|alex|fred|ryan|christopher|eric|roger|aaron|arthur|oliver|thomas|george|james|tom|matthew|rishi|reed|gordon|lee|evan|brian|andrew|steffan|davis)\b/i;
+  const FEMALE_HINTS = /\b(female|zira|samantha|hazel|susan|aria|jenny|karen|moira|tessa|victoria|serena|fiona|kate|amy|emma|libby|sonia|michelle|ava|allison|nicky|catherine|martha)\b/i;
+
+  /** يعطي كل صوت درجة؛ الأعلى هو الأنسب لصوت رجل عميق وطبيعي */
+  function scoreVoice(v) {
+    const n = v.name;
+    let s = 0;
+    if (v.lang === 'en-US' || v.lang === 'en_US') s += 3;
+    else if (v.lang === 'en-GB' || v.lang === 'en_GB') s += 2;
+    if (/natural|neural|online|premium|enhanced/i.test(n)) s += 6;  // أصوات طبيعية
+    if (MALE_HINTS.test(n)) s += 8;
+    if (FEMALE_HINTS.test(n)) s -= 20;
+    if (/google/i.test(n) && !/male/i.test(n)) s -= 1;              // أصوات Google العامة غالبًا أنثوية
+    if (v.localService) s += 1;
+    return s;
+  }
+  const isLikelyMale = v => MALE_HINTS.test(v.name) && !FEMALE_HINTS.test(v.name);
+
+  let voices = [];
+  function loadVoices() {
+    const all = synth.getVoices();
+    if (!all.length) return;                       // سيُستدعى مرة أخرى عند voiceschanged
+    let en = all.filter(v => /^en[-_](US|GB)$/i.test(v.lang));
+    if (!en.length) en = all.filter(v => /^en/i.test(v.lang));   // احتياط: أي إنجليزي
+    voices = en.sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+    const prev = el.voice.value;
+    el.voice.innerHTML = '';
+    voices.forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = `${isLikelyMale(v) ? '★ ' : ''}${v.name} (${v.lang})`;
+      el.voice.appendChild(o);
+    });
+    if (prev && voices.some(v => v.name === prev)) el.voice.value = prev;
+
+    if (!voices.length) {
+      showVoiceNote('لم يعثر المتصفح على أي صوت إنجليزي. ثبّت حزمة صوت إنجليزية من إعدادات النظام.');
+    } else if (!voices.some(isLikelyMale)) {
+      showVoiceNote('لا يوجد صوت رجل صريح في هذا المتصفح، فاخترنا أقرب صوت وخفّضنا درجته. جرّب Edge لأصوات Natural الذكورية.');
+    } else {
+      el.noteVoice.classList.remove('show');
+    }
+  }
+  function showVoiceNote(msg) { el.noteVoice.textContent = msg; el.noteVoice.classList.add('show'); }
+  const currentVoice = () => voices.find(v => v.name === el.voice.value) || voices[0] || null;
+
+  loadVoices();
+  synth.addEventListener('voiceschanged', loadVoices);   // الأصوات تُحمَّل بشكل غير متزامن
+  setTimeout(loadVoices, 600);                           // احتياط لـ Safari/Firefox
+
+  /* ---------- تقسيم النص إلى جمل (يتجنب توقف Chrome بعد ~15 ثانية) ---------- */
+  function chunkText(raw) {
+    const sentences = raw.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]*["'”’)\]]*\s*/g) || [];
+    const out = [];
+    let buf = '';
+    for (const s of sentences) {
+      if ((buf + s).length > 180 && buf) { out.push(buf.trim()); buf = ''; }
+      buf += s;
+      if (buf.length > 180) { out.push(buf.trim()); buf = ''; }
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  }
+
+  /* ---------- الحالة ---------- */
+  let chunks = [], idx = 0, token = 0, state = 'idle';
+
+  const LABELS = {
+    idle:'جاهز للقراءة', speaking:'جاري القراءة...', paused:'متوقف مؤقتًا',
+    done:'انتهت القراءة', stopped:'تم الإيقاف'
+  };
+  function setState(s) {
+    state = s;
+    el.stage.dataset.state = s;
+    el.statusText.textContent = LABELS[s];
+    const active = s === 'speaking', paused = s === 'paused';
+    el.play.disabled   = active || paused;
+    el.pause.disabled  = !active;
+    el.resume.disabled = !paused;
+    el.stop.disabled   = !(active || paused);
+  }
+
+  /* ---------- القراءة ---------- */
+  function speakNext(myToken) {
+    if (myToken !== token) return;                         // تم الإيقاف أو بدأت قراءة جديدة
+    if (idx >= chunks.length) {
+      el.bar.style.width = '100%';
+      el.caption.textContent = '';
+      setState('done');
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(chunks[idx]);
+    const v = currentVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+    u.rate  = parseFloat(el.rate.value);                   // تُقرأ قيمها لكل جملة فتنعكس التعديلات فورًا
+    u.pitch = parseFloat(el.pitch.value);
+    u.volume = 1;
+
+    u.onstart = () => {
+      el.caption.textContent = chunks[idx];
+      el.bar.style.width = (idx / chunks.length * 100) + '%';
+    };
+    u.onend = () => { if (myToken === token) { idx++; speakNext(myToken); } };
+    u.onerror = e => {
+      if (myToken !== token || e.error === 'canceled' || e.error === 'interrupted') return;
+      token++;
+      setState('idle');
+      const msg = e.error === 'not-allowed'
+        ? 'منع المتصفح التشغيل التلقائي. اضغط تشغيل مرة أخرى.'
+        : 'تعذّرت القراءة بهذا الصوت (' + e.error + '). اختر صوتًا آخر من القائمة.';
+      el.noteSupport.textContent = msg;
+      el.noteSupport.classList.add('show');
+    };
+    synth.speak(u);
+  }
+
+  function play() {
+    const raw = el.text.value.trim();
+    if (!raw) { el.text.focus(); return; }
+    el.noteSupport.classList.remove('show');
+    synth.cancel();
+    token++;
+    chunks = chunkText(raw);
+    idx = 0;
+    el.bar.style.width = '0';
+    setState('speaking');
+    speakNext(token);
+  }
+  function pause()  { synth.pause();  setState('paused'); }
+  function resume() { synth.resume(); setState('speaking'); }
+  function stop() {
+    token++;                                               // يُبطل أي onend معلّق
+    synth.cancel();
+    el.caption.textContent = '';
+    el.bar.style.width = '0';
+    setState('stopped');
+  }
+
+  el.play.addEventListener('click', play);
+  el.pause.addEventListener('click', pause);
+  el.resume.addEventListener('click', resume);
+  el.stop.addEventListener('click', stop);
+
+  /* عرض قيم المنزلقات */
+  const syncOut = () => {
+    el.rateOut.textContent  = parseFloat(el.rate.value).toFixed(2) + 'x';
+    el.pitchOut.textContent = parseFloat(el.pitch.value).toFixed(2);
+  };
+  el.rate.addEventListener('input', syncOut);
+  el.pitch.addEventListener('input', syncOut);
+  syncOut();
+
+  /* عند اختيار صوت غير ذكوري نترك الدرجة كما هي؛ وعند عدم وجود رجل نخفضها تلقائيًا */
+  el.voice.addEventListener('change', () => {
+    const v = currentVoice();
+    if (v && !isLikelyMale(v) && parseFloat(el.pitch.value) > 0.8) { el.pitch.value = 0.7; syncOut(); }
+  });
+  loadVoices();
+  if (voices.length && !voices.some(isLikelyMale)) { el.pitch.value = 0.7; syncOut(); }
+
+  /* لا نترك الصوت يعمل بعد إغلاق الصفحة */
+  window.addEventListener('beforeunload', () => synth.cancel());
+  setState('idle');
+})();
+</script>
+</body>
+</html>
