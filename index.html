@@ -160,6 +160,16 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
   </section>
 
   <section class="card dlbox">
+    <select id="kvoice" aria-label="صوت الملف">
+      <option value="am_michael">Michael (US)</option>
+      <option value="am_adam">Adam (US)</option>
+      <option value="bm_george">George (UK)</option>
+      <option value="bm_lewis">Lewis (UK)</option>
+    </select>
+    <button id="gen" type="button">
+      <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-4.7 1.4-1.4 3.3 3.3V3zM5 19h14v2H5z"/></svg>
+      <span id="genText">نزّل ملف صوتي (WAV)</span></button>
+    <p class="hint">أول مرة كيتحمّل نموذج صوتي (حوالي 90 ميغا) ويتخزن فالمتصفح، وتحتاج الإنترنت. الملف كيتنزّل لـ «عمليات التنزيل». صوتو ماشي نفس صوت القائمة فوق.</p>
     <button id="rec" type="button">
       <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-4.7 1.4-1.4 3.3 3.3V3zM5 19h14v2H5z"/></svg>
       <span id="recText">سجّل ونزّل الصوت</span></button>
@@ -438,6 +448,69 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
     setTimeout(() => { if (r.state !== 'inactive') r.stop(); }, 600);
   }
   rec.addEventListener('click', startRecording);
+
+  /* ---------- توليد ملف WAV داخل المتصفح (يخدم على الهاتف) ---------- */
+  const gen = $('gen'), genText = $('genText'), kv = $('kvoice');
+  if (!navigator.mediaDevices?.getDisplayMedia) {          // الهاتف: التسجيل غير مدعوم
+    rec.style.display = 'none';
+    $('recHint').style.display = 'none';
+  }
+  let kokoro = null;
+
+  /** يحوّل مقاطع Float32 إلى ملف WAV أحادي 16-bit */
+  function wavBlob(parts, sr) {
+    const n = parts.reduce((a, p) => a + p.length, 0);
+    const v = new DataView(new ArrayBuffer(44 + n * 2));
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    let o = 44;
+    for (const p of parts) for (let i = 0; i < p.length; i++) {
+      const s = Math.max(-1, Math.min(1, p[i]));
+      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); o += 2;
+    }
+    return new Blob([v.buffer], { type: 'audio/wav' });
+  }
+
+  async function generateFile() {
+    const raw = el.text.value.trim();
+    if (!raw) { el.text.focus(); return; }
+    el.noteSupport.classList.remove('show');
+    gen.disabled = true;
+    try {
+      if (!kokoro) {
+        genText.textContent = 'كنحمّل النموذج...';
+        const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+        kokoro = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+          dtype: 'q8', device: 'wasm',
+          progress_callback: p => {
+            if (p.status === 'progress' && p.total > 5e6)
+              genText.textContent = 'كنحمّل النموذج ' + Math.round(p.progress) + '%';
+          }
+        });
+      }
+      const parts = [], list = chunkText(raw);
+      let sr = 24000;
+      for (let i = 0; i < list.length; i++) {
+        genText.textContent = `كنصاوب الصوت ${i + 1}/${list.length}`;
+        const a = await kokoro.generate(list[i], { voice: kv.value, speed: parseFloat(el.rate.value) });
+        sr = a.sampling_rate; parts.push(a.audio);
+      }
+      const url = URL.createObjectURL(wavBlob(parts, sr));
+      const link = Object.assign(document.createElement('a'), { href: url, download: 'voice.wav' });
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      genText.textContent = 'تنزّل! نزّل مرة أخرى';
+    } catch (e) {
+      console.error(e);
+      recError('ما قدرناش نصاوبو الملف. تأكد من الإنترنت وعاود. (' + (e.message || e) + ')');
+      genText.textContent = 'نزّل ملف صوتي (WAV)';
+    } finally { gen.disabled = false; }
+  }
+  gen.addEventListener('click', generateFile);
 
   /* عرض قيم المنزلقات */
   const syncOut = () => {
