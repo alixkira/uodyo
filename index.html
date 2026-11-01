@@ -93,6 +93,15 @@ button:disabled{opacity:.38;cursor:not-allowed}
 #play{background:var(--cyan);color:#04121a;border-color:var(--cyan);font-weight:600}
 #play:hover:not(:disabled){box-shadow:0 0 22px rgba(34,228,255,.45)}
 
+/* التنزيل */
+.dlbox{display:grid;gap:10px}
+.dlbox button{flex-direction:row;justify-content:center;gap:10px;padding:13px}
+#rec.on{border-color:var(--danger);color:var(--danger)}
+.hint{margin:0;font-size:.85rem;color:var(--muted)}
+#dl{display:none;text-align:center;text-decoration:none;color:#04121a;background:var(--cyan);
+  font-weight:600;border-radius:14px;padding:13px}
+#dl.show{display:block}
+
 /* الإعدادات */
 .grid{display:grid;gap:16px}
 @media(min-width:620px){.grid{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
@@ -148,6 +157,14 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
       <button id="stop" type="button" disabled>
         <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>إيقاف</button>
     </div>
+  </section>
+
+  <section class="card dlbox">
+    <button id="rec" type="button">
+      <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-4.7 1.4-1.4 3.3 3.3V3zM5 19h14v2H5z"/></svg>
+      <span id="recText">سجّل ونزّل الصوت</span></button>
+    <a id="dl" download="voice.webm">تنزيل الملف</a>
+    <p class="hint" id="recHint">المتصفح ما كيسمحش بتنزيل الصوت مباشرة، فكنسجّلو وهو كيتقرا. غادي يطلع ليك مربع المشاركة: اختار «هاد التبويب» وفعّل «مشاركة صوت التبويب» (Chrome أو Edge على الكمبيوتر).</p>
   </section>
 
   <section class="card grid">
@@ -270,6 +287,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
 
   /* ---------- الحالة ---------- */
   let chunks = [], idx = 0, token = 0, state = 'idle';
+  let recorder = null, recStream = null, recParts = [], dlUrl = null;
 
   const LABELS = {
     idle:'جاهز للقراءة', speaking:'جاري القراءة...', paused:'متوقف مؤقتًا',
@@ -284,6 +302,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
     el.pause.disabled  = !active;
     el.resume.disabled = !paused;
     el.stop.disabled   = !(active || paused);
+    if (recorder && (s === 'done' || s === 'stopped' || s === 'idle')) finishRecording();
   }
 
   /* ---------- القراءة ---------- */
@@ -346,6 +365,79 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;margin:0}
   el.pause.addEventListener('click', pause);
   el.resume.addEventListener('click', resume);
   el.stop.addEventListener('click', stop);
+
+  /* ---------- تسجيل الصوت وتنزيله ----------
+     speechSynthesis لا يعطي ملفًا صوتيًا، فنلتقط صوت التبويب أثناء القراءة ونحفظه. */
+  const rec = $('rec'), recText = $('recText'), dl = $('dl');
+
+  function recError(msg) {
+    el.noteSupport.textContent = msg;
+    el.noteSupport.classList.add('show');
+  }
+  function resetRecUi() {
+    rec.classList.remove('on');
+    recText.textContent = 'سجّل ونزّل الصوت';
+    rec.disabled = false;
+  }
+
+  async function startRecording() {
+    if (state === 'speaking' || state === 'paused') { recError('وقّف القراءة الحالية أولاً، ومن بعد جرّب التسجيل.'); return; }
+    if (!el.text.value.trim()) { el.text.focus(); return; }
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
+      recError('هاد المتصفح ما كيدعمش تسجيل صوت التبويب. جرّب Chrome أو Edge على الكمبيوتر.');
+      return;
+    }
+    el.noteSupport.classList.remove('show');
+    try {
+      recStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, audio: true, preferCurrentTab: true, selfBrowserSurface: 'include'
+      });
+    } catch (e) {
+      recError('تلغات المشاركة. عاود وختار «هاد التبويب» مع تفعيل مشاركة الصوت.');
+      return;
+    }
+    const audioTracks = recStream.getAudioTracks();
+    if (!audioTracks.length) {
+      recStream.getTracks().forEach(t => t.stop()); recStream = null;
+      recError('ما تشاركاش الصوت. عاود وفعّل «مشاركة صوت التبويب» في مربع المشاركة.');
+      return;
+    }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+      .find(m => MediaRecorder.isTypeSupported(m)) || '';
+    recParts = [];
+    recorder = new MediaRecorder(new MediaStream(audioTracks), mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = e => { if (e.data.size) recParts.push(e.data); };
+    recorder.onstop = () => {
+      recStream && recStream.getTracks().forEach(t => t.stop());
+      recStream = null;
+      const blob = new Blob(recParts, { type: recorder.mimeType || 'audio/webm' });
+      recorder = null;
+      resetRecUi();
+      if (blob.size < 2000) { recError('التسجيل خرج فارغ. تأكد أنك فعّلت مشاركة الصوت، أو جرّب صوتًا آخر من القائمة.'); return; }
+      if (dlUrl) URL.revokeObjectURL(dlUrl);
+      dlUrl = URL.createObjectURL(blob);
+      const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+      dl.href = dlUrl; dl.download = 'voice.' + ext;
+      dl.classList.add('show');
+      dl.click();                                   // تنزيل تلقائي، والرابط يبقى للتحميل مرة أخرى
+    };
+    audioTracks[0].addEventListener('ended', () => { if (recorder) stop(); });
+
+    dl.classList.remove('show');
+    rec.classList.add('on');
+    recText.textContent = 'كنسجّل... (ينتهي مع نهاية القراءة)';
+    rec.disabled = true;
+    recorder.start();
+    play();
+  }
+
+  /** يُستدعى عند نهاية القراءة؛ نمهل ثانية نصف ليدخل آخر الكلام في التسجيل */
+  function finishRecording() {
+    const r = recorder;
+    if (!r || r.state === 'inactive') return;
+    setTimeout(() => { if (r.state !== 'inactive') r.stop(); }, 600);
+  }
+  rec.addEventListener('click', startRecording);
 
   /* عرض قيم المنزلقات */
   const syncOut = () => {
